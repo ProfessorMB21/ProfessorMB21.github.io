@@ -403,7 +403,7 @@
   })();
 
   /* project filters */
-  (function () {
+  window.applyProjectFilter = function (f) {
     var bar = document.querySelector('.filters');
     if (!bar) return;
     var btns = [].slice.call(bar.querySelectorAll('button[data-f]'));
@@ -413,28 +413,31 @@
     function has(el, f) {
       return f === 'all' || (' ' + el.getAttribute('data-lang') + ' ').indexOf(' ' + f + ' ') > -1;
     }
-    function apply(f) {
-      var shown = 0;
-      btns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-f') === f ? 'true' : 'false'); });
-      items.forEach(function (el) {
-        if (has(el, f)) {
-          shown++;
-          if (el.hidden) {
-            el.hidden = false;
-            el.classList.remove('flash');
-            void el.offsetWidth;
-            el.classList.add('flash');
-          }
-        } else {
-          el.hidden = true;
-        }
-      });
-      rows.forEach(function (el) { el.classList.toggle('dim', !has(el, f)); });
-      count.textContent = 'Showing ' + shown + ' of ' + items.length;
-    }
+    var shown = 0;
+    btns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-f') === f ? 'true' : 'false'); });
+    items.forEach(function (el) {
+      if (has(el, f)) {
+        shown++;
+        el.hidden = false;
+        el.style.display = '';
+        el.classList.remove('flash');
+        void el.offsetWidth;
+        el.classList.add('flash');
+      } else {
+        el.hidden = true;
+        el.style.display = 'none';
+      }
+    });
+    rows.forEach(function (el) { el.classList.toggle('dim', !has(el, f)); });
+    count.textContent = 'Showing ' + shown + ' of ' + items.length;
+  };
+
+  (function () {
+    var bar = document.querySelector('.filters');
+    if (!bar) return;
     bar.addEventListener('click', function (e) {
       var b = e.target.closest('button[data-f]');
-      if (b) apply(b.getAttribute('data-f'));
+      if (b) window.applyProjectFilter(b.getAttribute('data-f'));
     });
   })();
 
@@ -529,14 +532,17 @@
   var status = document.getElementById('copy-status');
   var addr = document.getElementById('mail-address');
   function selectAddr() {
+    var codeEl = addr.querySelector('code');
+    var target = codeEl || addr;
     var r = document.createRange();
-    r.selectNodeContents(addr);
+    r.selectNodeContents(target);
     var s = window.getSelection();
     s.removeAllRanges();
     s.addRange(r);
   }
   btn.addEventListener('click', function () {
-    var text = addr.textContent.trim();
+    var codeEl = addr.querySelector('code');
+    var text = (codeEl || addr).textContent.trim();
     var p;
     try { p = navigator.clipboard.writeText(text); } catch (e) { p = Promise.reject(e); }
     p.then(function () {
@@ -580,5 +586,172 @@
         }
       })
       .catch(function () {});
+  })();
+
+  /* update last updated date based on repo push date */
+  (function () {
+    var lastUpdated = document.getElementById('last-updated');
+    if (!lastUpdated) return;
+    var username = 'ProfessorMB21';
+    var repoName = 'ProfessorMB21.github.io';
+
+    fetch('https://api.github.com/repos/' + username + '/' + repoName)
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.pushed_at) {
+          var date = new Date(data.pushed_at);
+          var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+          lastUpdated.textContent = 'Updated ' + months[date.getMonth()] + ' ' + date.getFullYear();
+        }
+      })
+      .catch(function () {
+        /* fallback to October 2026 if API fails */
+      });
+  })();
+
+  /* dynamically load projects from GitHub */
+  (function () {
+    var objsContainer = document.querySelector('.objs');
+    if (!objsContainer) return;
+
+    var username = 'ProfessorMB21';
+    var pinnedRepos = [
+      'alx-low_level_programming',
+      'alx-higher_level_programming',
+      'simple_projects',
+      'alx-system_engineering-devops',
+      'alx-pre_course',
+      'blogsite'
+    ];
+
+    var additionalRepos = [
+      'cyber_shooter_2d',
+      'ProfessorMB21.github.io',
+      'python-web-scraping-projects',
+      'GoodbyeDPI'
+    ];
+
+    var allReposToShow = pinnedRepos.concat(additionalRepos);
+
+    function getLanguageLabel(lang) {
+      var map = {
+        'C': 'c',
+        'Python': 'python',
+        'JavaScript': 'javascript',
+        'Shell': 'shell',
+        'C++': 'cpp',
+        'HTML': 'html'
+      };
+      return map[lang] || lang.toLowerCase();
+    }
+
+    function getStarSize(stars) {
+      return (Math.sqrt(stars) * 0.9) + 'rem';
+    }
+
+    function updateFilters() {
+      var langs = {};
+      document.querySelectorAll('.obj[data-lang]').forEach(function (obj) {
+        var langAttr = obj.getAttribute('data-lang');
+        if (langAttr) {
+          langAttr.split(' ').forEach(function (l) {
+            langs[l] = (langs[l] || 0) + 1;
+          });
+        }
+      });
+
+      var total = document.querySelectorAll('.obj[data-lang]').length;
+      document.querySelector('[data-f="all"] i').textContent = total;
+
+      Object.keys(langs).forEach(function (lang) {
+        var btn = document.querySelector('[data-f="' + lang + '"]');
+        if (btn) {
+          btn.querySelector('i').textContent = langs[lang];
+        }
+      });
+
+      document.getElementById('fcount').textContent = 'Showing ' + total + ' of ' + total;
+    }
+
+    /* fetch all repos data */
+    fetch('https://api.github.com/users/' + username + '/repos?per_page=100&sort=updated')
+      .then(function (res) { return res.json(); })
+      .then(function (allRepos) {
+        var reposMap = {};
+        allRepos.forEach(function (repo) {
+          reposMap[repo.name] = repo;
+        });
+
+        allReposToShow.forEach(function (repoName, index) {
+          var repo = reposMap[repoName];
+          if (!repo) return;
+
+          var lang = repo.language || 'HTML';
+          var langLabel = getLanguageLabel(lang);
+          var stars = repo.stargazers_count || 0;
+          var forks = repo.forks_count || 0;
+          var description = repo.description || 'Repository on GitHub';
+
+          /* create project card */
+          var details = document.createElement('details');
+          details.className = 'obj';
+          details.setAttribute('data-lang', langLabel);
+          if (index === 0) details.open = true;
+
+          var summary = document.createElement('summary');
+          var orbDiv = document.createElement('div');
+          orbDiv.className = 'orb';
+          orbDiv.setAttribute('aria-hidden', 'true');
+          orbDiv.innerHTML = '<i style="--d:' + getStarSize(stars) + '"></i>';
+
+          var mainDiv = document.createElement('div');
+          mainDiv.className = 'obj-main';
+          mainDiv.innerHTML = '<span class="obj-name">' + repoName.replace(/_/g, '_<wbr>') + '</span><p>' + description + '</p>';
+
+          var metaDiv = document.createElement('div');
+          metaDiv.className = 'obj-meta';
+          metaDiv.innerHTML = '<span>' + lang + '</span><span><b>' + stars + '</b> star' + (stars !== 1 ? 's' : '') + '</span>' +
+            (forks > 0 ? '<span><b>' + forks + '</b> fork' + (forks !== 1 ? 's' : '') + '</span>' : '');
+
+          summary.appendChild(orbDiv);
+          summary.appendChild(mainDiv);
+          summary.appendChild(metaDiv);
+
+          var panel = document.createElement('div');
+          panel.className = 'panel';
+          panel.innerHTML = '<div class="pgrid"><div><h4 class="pl">Topics</h4><ul class="tags">' +
+            (repo.topics && repo.topics.length > 0 ? repo.topics.map(function (t) { return '<li>' + t + '</li>'; }).join('') : '<li>No topics</li>') +
+            '</ul></div><div><h4 class="pl">Facts</h4><dl class="kv"><dt>Stars</dt><dd>' + stars +
+            '</dd><dt>Forks</dt><dd>' + forks + '</dd><dt>Language</dt><dd>' + lang + '</dd></dl></div></div>' +
+            '<a class="btn" href="' + repo.html_url + '" target="_blank" rel="noopener">Open on GitHub</a>';
+
+          details.appendChild(summary);
+          details.appendChild(panel);
+
+          /* update or append */
+          var existing = objsContainer.querySelector('.obj[data-lang*="' + langLabel + '"]');
+          if (existing && existing.querySelector('.obj-name').textContent.replace(/​/g, '').replace(/_/g, '_') === repoName.replace(/_/g, '_')) {
+            existing.replaceWith(details);
+          } else {
+            objsContainer.appendChild(details);
+          }
+
+          loadedCount++;
+        });
+
+        updateFilters();
+
+        /* apply current filter if any */
+        var activeBtn = document.querySelector('.fchip[aria-pressed="true"]');
+        if (activeBtn) {
+          var activeFilter = activeBtn.getAttribute('data-f');
+          if (activeFilter && activeFilter !== 'all') {
+            window.applyProjectFilter(activeFilter);
+          }
+        }
+      })
+      .catch(function (err) {
+        console.error('Failed to load projects:', err);
+      });
   })();
 })();
